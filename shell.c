@@ -209,6 +209,8 @@ static void endTimer(void){
 #define HAS_TIMER 0
 #endif
 
+typedef void(*Logger)(char *);
+
 /*
 ** Used to prevent warnings about unused parameters
 */
@@ -1445,7 +1447,7 @@ static char zTimerHelp[] =
 ;
 
 /* Forward reference */
-static int process_input(struct callback_data *p, FILE *in);
+static int process_input(struct callback_data *p, FILE *in, Logger logger);
 
 /*
 ** Make sure the database is open.  If it is not, then open it.  If
@@ -1577,7 +1579,7 @@ static void test_breakpoint(void){
 **
 ** Return 1 on error, 2 to exit, and 0 otherwise.
 */
-static int do_meta_command(char *zLine, struct callback_data *p){
+static int do_meta_command(char *zLine, struct callback_data *p, Logger logger){
   int i = 1;
   int nArg = 0;
   int n, c;
@@ -2090,7 +2092,7 @@ static int do_meta_command(char *zLine, struct callback_data *p){
       fprintf(stderr,"Error: cannot open \"%s\"\n", azArg[1]);
       rc = 1;
     }else{
-      rc = process_input(p, alt);
+      rc = process_input(p, alt, logger);
       fclose(alt);
     }
   }else
@@ -2585,7 +2587,7 @@ static int _is_complete(char *zSql, int nSql){
 **
 ** Return the number of errors.
 */
-static int process_input(struct callback_data *p, FILE *in){
+static int process_input(struct callback_data *p, FILE *in, Logger logger){
   char *zLine = 0;
   char *zSql = 0;
   int nSql = 0;
@@ -2618,7 +2620,7 @@ static int process_input(struct callback_data *p, FILE *in){
     if( (zSql==0 || zSql[0]==0) && _all_whitespace(zLine) ) continue;
     if( zLine && zLine[0]=='.' && nSql==0 ){
       if( p->echoOn ) printf("%s\n", zLine);
-      rc = do_meta_command(zLine, p);
+      rc = do_meta_command(zLine, p, logger);
       if( rc==2 ){ /* exit requested */
         break;
       }else if( rc ){
@@ -2658,11 +2660,13 @@ static int process_input(struct callback_data *p, FILE *in){
                 && sqlite3_complete(zSql) ){
       p->cnt = 0;
       open_db(p);
-      printf("%s... ", zSql);
+      if (logger)
+          logger(zSql);
+      else
+          printf("%s... ", zSql);
       BEGIN_TIMER;
       rc = shell_exec(p->db, zSql, shell_callback, p, &zErrMsg);
       END_TIMER;
-      printf("done\n");
       if( rc || zErrMsg ){
         char zPrefix[100];
         if( in!=0 || !stdin_is_interactive ){
@@ -2764,7 +2768,8 @@ static char *find_home_dir(void){
 */
 static int process_sqliterc(
   struct callback_data *p,        /* Configuration data */
-  const char *sqliterc_override   /* Name of config file. NULL to use default */
+  const char *sqliterc_override,   /* Name of config file. NULL to use default */
+  Logger logger
 ){
   char *home_dir = NULL;
   const char *sqliterc = sqliterc_override;
@@ -2788,7 +2793,7 @@ static int process_sqliterc(
     if( stdin_is_interactive ){
       fprintf(stderr,"-- Loading resources from %s\n",sqliterc);
     }
-    rc = process_input(p,in);
+    rc = process_input(p, in, logger);
     fclose(in);
   }
   sqlite3_free(zBuf);
@@ -2852,7 +2857,7 @@ static void main_init(struct callback_data *data) {
   sqlite3_config(SQLITE_CONFIG_SINGLETHREAD);
 }
 
-int main_impl(int argc, char **argv){
+int main_impl(int argc, char **argv, Logger logger){
   char *zErrMsg = 0;
   struct callback_data data;
   const char *zInitFile = 0;
@@ -2971,7 +2976,7 @@ int main_impl(int argc, char **argv){
   ** is given on the command line, look for a file named ~/.sqliterc and
   ** try to process it.
   */
-  rc = process_sqliterc(&data, zInitFile);
+  rc = process_sqliterc(&data, zInitFile, logger);
   if (rc > 0)
   {
       return rc;
@@ -3121,7 +3126,7 @@ int main_impl(int argc, char **argv){
               z = argv[i];
               if (z[0] == '.')
               {
-                  rc = do_meta_command(z, &data);
+                  rc = do_meta_command(z, &data, logger);
                   if (rc && bail_on_error) return rc;
               }
               else
@@ -3154,7 +3159,7 @@ int main_impl(int argc, char **argv){
           */
           if (zFirstCmd[0] == '.')
           {
-              rc = do_meta_command(zFirstCmd, &data);
+              rc = do_meta_command(zFirstCmd, &data, logger);
           }
           else
           {
@@ -3199,7 +3204,7 @@ int main_impl(int argc, char **argv){
 #if defined(HAVE_READLINE) && HAVE_READLINE==1
               if (zHistory) read_history(zHistory);
 #endif
-              rc = process_input(&data, 0);
+              rc = process_input(&data, 0, logger);
               if (zHistory)
               {
                   stifle_history(100);
@@ -3209,7 +3214,7 @@ int main_impl(int argc, char **argv){
           }
           else
           {
-              rc = process_input(&data, stdin);
+              rc = process_input(&data, stdin, logger);
           }
       }
   }
@@ -3220,7 +3225,7 @@ int main_impl(int argc, char **argv){
   return rc;
 }
 
-int SQLiteShellExecute(int argc, char ** argv)
+int SQLiteShellExecute(int argc, char ** argv, Logger logger)
 {
-    return main_impl(argc, argv);
+    return main_impl(argc, argv, logger);
 }

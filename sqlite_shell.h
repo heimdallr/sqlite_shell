@@ -12,6 +12,7 @@
 
 EXTERN_C_BEGIN
 
-int SQLiteShellExecute(int argc, char ** argv);
+typedef void(*Logger)(char *);
+int SQLiteShellExecute(int argc, char ** argv, Logger logger);
 
 EXTERN_C_END
